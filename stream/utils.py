@@ -2,8 +2,8 @@ from collections import deque
 
 # global input spike bus; each element is (input_neuron_id, spike_ts)
 SPIKE_QUEUE = deque()
-
 EPS = 1e-9
+
 
 # append a spike into the global queue
 def inputFire(input_neuron_id, spike_ts):
@@ -20,17 +20,14 @@ def flush_sorted_spikes():
 
 
 # extract spikes whose timestamp is'n greater than current_time_ms
-def pop_ready_spikes(
-        current_time_ms,
-        sorted_events,
-        start_idx
-    ):
-    i = start_idx
-    n = len(sorted_events)
+def pop_ready_spikes(current_time_ms):
     ready = []
-
-    while i < n and sorted_events[i][1] <= current_time_ms + EPS:
-        ready.append(sorted_events[i][0])
-        i += 1
-
-    return ready, i
+    keep = []
+    while SPIKE_QUEUE:
+        neur_id, ts = SPIKE_QUEUE.popleft()
+        if ts <= current_time_ms + EPS:
+            ready.append(neur_id)
+        else:
+            keep.append((neur_id, ts))
+    SPIKE_QUEUE.extendleft(reversed(keep))
+    return ready
