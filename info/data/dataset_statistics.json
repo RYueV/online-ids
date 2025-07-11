@@ -1,0 +1,48 @@
+{
+  "train": {
+    "arp_mitm": {
+      "total": 1661280,
+      "attack": 343157,
+      "normal": 1318123,
+      "path": "dataset\\train\\arp_mitm_labels.csv",
+      "average_interpacket_time_seconds": 0.00048333741530947585
+    },
+    "ssdp_flood": {
+      "total": 3052589,
+      "attack": 425650,
+      "normal": 2626939,
+      "path": "dataset\\train\\ssdp_flood_labels.csv",
+      "average_interpacket_time_seconds": 0.0007873364811027505
+    },
+    "syn_dos": {
+      "total": 2709027,
+      "attack": 5204,
+      "normal": 2703823,
+      "path": "dataset\\train\\syn_dos_labels.csv",
+      "average_interpacket_time_seconds": 0.0011363043514770394
+    }
+  },
+  "test": {
+    "arp_mitm": {
+      "total": 842987,
+      "attack": 802115,
+      "normal": 40872,
+      "path": "dataset\\test\\arp_mitm_labels.csv",
+      "average_interpacket_time_seconds": 0.00048351908702006706
+    },
+    "ssdp_flood": {
+      "total": 1024677,
+      "attack": 1013954,
+      "normal": 10723,
+      "path": "dataset\\test\\ssdp_flood_labels.csv",
+      "average_interpacket_time_seconds": 3.9727851435574044e-05
+    },
+    "syn_dos": {
+      "total": 62249,
+      "attack": 1834,
+      "normal": 60415,
+      "path": "dataset\\test\\syn_dos_labels.csv",
+      "average_interpacket_time_seconds": 0.0014609726079554228
+    }
+  }
+}
