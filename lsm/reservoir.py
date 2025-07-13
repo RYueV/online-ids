@@ -68,11 +68,18 @@ def build_reservoir_graph(params, rng):
 
     # inhibitory mask and synaptic weights
     is_inh = rng.random(N_HIDDEN_NEURONS) < params['inh_frac']
-    weights = rng.exponential(
-        params['w_rec_scale'], size=num_edges
-    ).astype(np.float32)
+    weights = np.abs(rng.normal(
+        loc=0.0,
+        scale=1.0,
+        size=num_edges
+    )).astype(np.float32)
     # inhibitory neurons send negative weights
     weights[is_inh[pre]] *= -1.0
+
+    # target std
+    current_std = np.std(weights)
+    if current_std > 0:
+        weights = weights / current_std * params['w_rec_scale']
 
     # generate synaptic delays in ms and convert to ticks
     d_ms = rng.uniform(
@@ -147,14 +154,6 @@ def reservoir_step(params, state, inputs):
     tick = state['tick']
     buf_len = state['buf_len']
 
-    # current position in delay buffer
-    pos = tick % buf_len
-
-    # deliver all delayed spikes scheduled for this tick
-    for post, w in state['delay_buf'][pos]:
-        i_syn[post] += w
-    state['delay_buf'][pos].clear()
-
     # apply input spikes
     for in_id in inputs:
         state['pre_trace'][in_id] = 1.0
@@ -162,6 +161,14 @@ def reservoir_step(params, state, inputs):
         for post, w, dtk in state['input_from'][in_id]:
             buf_pos = (tick + dtk) % buf_len
             state['delay_buf'][buf_pos].append((post, w))
+
+    # current position in delay buffer
+    pos = tick % buf_len
+
+    # deliver all delayed spikes scheduled for this tick
+    for post, w in state['delay_buf'][pos]:
+        i_syn[post] += w
+    state['delay_buf'][pos].clear()
 
     # exponential decay of synaptic current
     i_syn *= state['decay_i']
