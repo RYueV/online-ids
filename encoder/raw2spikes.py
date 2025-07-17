@@ -11,6 +11,8 @@ IP_LEN_BIG = 1000
 IP_LEN_SMALL = 60
 DEF_MAC_MULTI = 2
 
+BCAST_MAC = b"\xff\xff\xff\xff\xff\xff"  
+ARP_REQ_THRESHOLD = 20
 
 NS, CWR, ECE, URG, ACK, PSH, RST, SYN, FIN = (
     1 << 8,
@@ -31,7 +33,9 @@ def init_ttfs_state():
         "ttl_base" : {},
         "seen_tcp_ports" : set(),
         "ip_pref" : Counter(),
-        "local" : None
+        "local" : None,
+        "ip_to_macs_arp": defaultdict(set),
+        "mac_to_tpas" : defaultdict(set)
     }
 
 
@@ -62,11 +66,15 @@ def parse_ipv4(raw):
     if len(raw) < 20: return None
     ihl_decl = (raw[0] & 0x0F) * 4
     ihl = 20 if len(raw) < ihl_decl else ihl_decl
+    ident = struct.unpack("!H", raw[4:6])[0]
+    flags_frag = struct.unpack("!H", raw[6:8])[0]
     return {
         "ihl" : ihl,
         "ttl" : raw[8],
         "proto" : raw[9],
         "totlen" : struct.unpack("!H", raw[2:4])[0],
+        "ident": ident,
+        "flags_frag": flags_frag,
         "src" : raw[12:16],
         "dst" : raw[16:20],
         "payload" : raw[ihl:]
@@ -86,7 +94,9 @@ def parse_tcp(raw):
         "ack" : ack,
         "win" : win,
         "flags" : flags,
-        "payload_len" : len(raw) - hdr_len
+        "payload_len" : len(raw) - hdr_len,
+        "hdr_len" : hdr_len,
+        "payload": raw[hdr_len:]
     }
 
 
@@ -129,6 +139,7 @@ def _update_local_prefix(state, src, dst):
         state["local"], _ = state["ip_pref"].most_common(1)[0]
 
 
+
 def encode_packet(ts_s, raw, state):
     t_ms = ts_s * 1000.0
     eth = parse_eth(raw)
@@ -138,10 +149,27 @@ def encode_packet(ts_s, raw, state):
     if eth["etype"] == 0x0806:
         arp = parse_arp(eth["payload"])
         if not arp: return
-        spa, sha = arp["spa"], arp["sha"]
+        spa, sha, op = arp["spa"], arp["sha"], arp["op"]
 
         if _ip_multi_mac(state, ip=spa, mac=sha):
             _fire("ip_multi_mac", t_ms)
+
+        if arp["spa"] and arp["spa"] == arp["tpa"]:
+            _fire("arp_gratuitous", t_ms)
+
+        s_dup = state["ip_to_macs_arp"][spa]
+        # reply only
+        if op == 2:
+            s_dup.add(sha)
+            if len(s_dup) >= DEF_MAC_MULTI:
+                _fire("arp_dup_ip", t_ms)
+
+        # request
+        if op == 1:
+            s_many = state["mac_to_tpas"][sha]
+            s_many.add(arp["tpa"])
+            if len(s_many) >= ARP_REQ_THRESHOLD:
+                _fire("arp_many_req", t_ms)
 
         return
     
@@ -183,6 +211,7 @@ def encode_packet(ts_s, raw, state):
 
         if (F & SYN) and not (F & ACK):
             _fire("tcp_syn", t_ms)
+
         if (F & SYN) and (F & ACK):
             _fire("tcp_synack", t_ms)
         if (F & RST) and not (F & ACK):

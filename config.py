@@ -14,14 +14,19 @@ INPUT_MAP = {
     "ip_totlen_small" : 8,
     "tcp_null" : 9,
     "tcp_xmas" : 10,
-    "tcp_fin_scan" : 11
+    "tcp_fin_scan" : 11,
+    # these inputs are triggered shortly before the start of the ARP MitM attack
+    # (approximately 5 packets before the attack traffic begins) 
+    "arp_gratuitous" : 12,
+    "arp_dup_ip" : 13,
+    "arp_many_req" : 14
 }
 
 WEIGHTS = {
     "ip_multi_mac" : 8,
     "ttl_increase" : 5,
     "tcp_synack" : 15,
-    "tcp_syn" : 3,
+    "tcp_syn" : 6,
     "udp_len_large" : 1,
     "new_tcp_dport" : 4,
     "ip_totlen_large" : 1,
@@ -29,7 +34,10 @@ WEIGHTS = {
     "tcp_rst" : 10,    
     "tcp_null" : 10,
     "tcp_xmas" : 10,
-    "tcp_fin_scan" : 10
+    "tcp_fin_scan" : 10,
+    "arp_gratuitous" : 10,
+    "arp_dup_ip" : 10,
+    "arp_many_req" : 10    
 }
 
 N_INPUTS = len(INPUT_MAP)
