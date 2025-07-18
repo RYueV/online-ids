@@ -1,48 +1,93 @@
 import numpy as np
+from collections import defaultdict
 from config import (
     N_INPUTS,
     N_HIDDEN_NEURONS,
-    SECTOR_SIZE,
-    GROUPS
+    SECTOR_SIZES,
+    SECTORS,
+    WEIGHTS,
+    N_SECTORS
 )
+
+SECTOR_BOUND = np.cumsum([0] + SECTOR_SIZES)
+assert SECTOR_BOUND[-1] == N_HIDDEN_NEURONS, "N_HIDDEN_NEURONS != num_sec_neurons*num_sec"
+
+
+def sector_of(neuron_id):
+    return int(np.searchsorted(SECTOR_BOUND, neuron_id, side='right') - 1)
+
+
+def neurons_in_sector(sector_id):
+    start = SECTOR_BOUND[sector_id]
+    stop = SECTOR_BOUND[sector_id + 1]
+    return np.arange(start, stop, dtype=int)
+
+
+def allocate_neuron_quota():
+    inputs_by_sector = defaultdict(list)
+    for input_id in range(N_INPUTS):
+        sector = SECTORS.get(input_id, 4)
+        inputs_by_sector[sector].append(input_id)
+
+    quotas = {}
+
+    for sector_id in range(N_SECTORS):
+        sec_size = SECTOR_SIZES[sector_id]
+        in_list = inputs_by_sector.get(sector_id, [])
+        if not in_list: continue
+
+        w_list = np.array([WEIGHTS[i] for i in in_list], dtype=float)
+        w_sum = w_list.sum()
+        frac = w_list / w_sum
+
+        raw_q = np.maximum(1, np.round(frac * sec_size)).astype(int)
+        diff = sec_size - raw_q.sum()
+
+        if diff > 0:
+            for _ in range(diff):
+                idx = np.argmax(frac - raw_q / sec_size)
+                raw_q[idx] += 1
+        elif diff < 0:
+            for _ in range(-diff):
+                idx = np.argmax(raw_q)
+                if raw_q[idx] > 1:
+                    raw_q -= 1
+        
+        quotas.update({
+            in_id: int(q)
+            for in_id, q in zip(in_list, raw_q)
+        })
+    
+    return quotas
 
 
 def build_input_connections(params, rng):
     # input_from[i] = [target_neuron_id, synaptic_weight, synaptic_delay_in_ticks]
     input_from = [[] for _ in range(N_INPUTS)]
-    # for each input channel connect to 4 neurons in its assigned sector + 1 outside
+
+    quota = allocate_neuron_quota()
+    in_weights = params.get(
+        'w_in_base',
+        (params['w_in_min'] + params['w_in_max']) / 2
+    )
+    all_neurons = np.arange(N_HIDDEN_NEURONS, dtype=int)
+
     for in_id in range(N_INPUTS):
-        # get sector id based on input type
-        try:
-            sector_id = GROUPS.get(in_id)
-        except:
-            sector_id = 4
-        first_id = sector_id * SECTOR_SIZE
-        last_id = first_id + SECTOR_SIZE if sector_id < 4 else N_HIDDEN_NEURONS
-        local_pool = np.arange(first_id, last_id)
+        n_targets = max(1, quota.get(in_id, 1))
+        sector_id = SECTORS.get(in_id, 4)
 
-        # 4 targets inside the sector (local)
-        inside = rng.choice(local_pool, size=min(4, local_pool.size), replace=False)
-        # 1 target outside the sector (global)
-        outside = rng.choice(
-            np.setdiff1d(np.arange(N_HIDDEN_NEURONS), local_pool),
-            size=1, replace=False
-        )
-        # merge local and global targets
-        targets = np.concatenate([inside, outside])
+        local_pool = neurons_in_sector(sector_id)
+        global_pool = np.setdiff1d(all_neurons, local_pool, assume_unique=True)
 
-        weights = rng.uniform(
-            params['w_in_min'],
-            params['w_in_max'],
-            size=targets.size
-        )
-        # input spikes have 0 delay 
-        syn_delay = np.zeros_like(targets, dtype=int)
+        n_local = min(len(local_pool), max(1, int(0.8 * n_targets)))
+        n_global = n_targets - n_local
 
-        input_from[in_id] = [
-            (int(t), float(w), int(d))
-            for t, w, d in zip(targets, weights, syn_delay)
-        ]
+        local_tg = rng.choice(local_pool, size=n_local, replace=False)
+        global_tg = rng.choice(global_pool, size=n_global, replace=False)
+
+        targets = np.concatenate([local_tg, global_tg])
+        for t in targets:
+            input_from[in_id].append((int(t), float(in_weights), 0))
 
     return input_from
 
@@ -53,33 +98,37 @@ def build_reservoir_graph(params, rng):
     num_edges = int(
         N_HIDDEN_NEURONS * (N_HIDDEN_NEURONS - 1) * params['sparsity']
     )
+    edges = []
 
     # pre -> post neuron pairs (candidates)
-    pre = rng.integers(0, N_HIDDEN_NEURONS, size=num_edges*3, dtype=int)
-    post = rng.integers(0, N_HIDDEN_NEURONS, size=num_edges*3, dtype=int)    
-    
-    # filter self-loops, remove duplicates
-    mask = pre != post
-    edges = np.unique(
-        np.stack((pre[mask], post[mask]), 1),
-        axis=0
-    )[:num_edges]
+    while len(edges) < num_edges:
+        pre = rng.integers(0, N_HIDDEN_NEURONS)
+        post = rng.integers(0, N_HIDDEN_NEURONS)
+        # filter self-loops
+        if pre == post: continue
+
+        same = sector_of(pre) == sector_of(post)
+        if same and rng.random() > 0.7: continue
+        
+        edges.append((pre, post))
+
+    edges = np.array(edges, dtype=int)
     pre, post = edges[:,0], edges[:,1]
 
     # inhibitory mask and synaptic weights
     is_inh = rng.random(N_HIDDEN_NEURONS) < params['inh_frac']
-    weights = np.abs(rng.normal(
+    rec_weights = np.abs(rng.normal(
         loc=0.0,
         scale=1.0,
         size=num_edges
     )).astype(np.float32)
     # inhibitory neurons send negative weights
-    weights[is_inh[pre]] *= -1.0
+    rec_weights[is_inh[pre]] *= -1.0
 
     # target std
-    current_std = np.std(weights)
+    current_std = np.std(rec_weights)
     if current_std > 0:
-        weights = weights / current_std * params['w_rec_scale']
+        rec_weights = rec_weights / current_std * params['w_rec_scale']
 
     # generate synaptic delays in ms and convert to ticks
     d_ms = rng.uniform(
@@ -91,7 +140,7 @@ def build_reservoir_graph(params, rng):
 
     # build adjacency list
     graph_from = [[] for _ in range(N_HIDDEN_NEURONS)]
-    for epre, epost, w, dtk in zip(pre, post, weights, d_ticks):
+    for epre, epost, w, dtk in zip(pre, post, rec_weights, d_ticks):
         graph_from[epre].append((int(epost), float(w), int(dtk)))
     
     return graph_from
