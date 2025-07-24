@@ -31,7 +31,7 @@ def fast_forward(state, delta_ms):
     if delta_ms <= 0: return
     k = int(round(delta_ms / (state['dt'] + 1e-6)))
     state['v'] *= state['decay_v']**k
-    state['i_syn'] = state['decay_i']**k
+    state['i_syn'] *= state['decay_i']**k
     state['tick'] += k
     state['time_ms'] += delta_ms
 
@@ -42,8 +42,11 @@ def delay_buffer_empty(state):
 
 def switch_dt(state, params, new_dt):
     old_dt = params['dt']
+    if abs(new_dt - old_dt) < 1e-9:
+        return
     params['dt'] = new_dt
-    state['decay_v'] = np.exp(-new_dt/params['tau_mem'])
-    state['decay_i'] = np.exp(-new_dt/params['tau_syn'])
+    state['dt'] = new_dt
+    state['decay_v'] = np.float32(np.exp(-new_dt/params['tau_mem']))
+    state['decay_i'] = np.float32(np.exp(-new_dt/params['tau_syn']))
     state['t_ref_ticks'] = int(np.ceil(params['t_ref']/new_dt))
 

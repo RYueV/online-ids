@@ -1,13 +1,16 @@
 import numpy as np
 from collections import defaultdict
+from pathlib import Path
 from config import (
     N_INPUTS,
     N_HIDDEN_NEURONS,
     SECTOR_SIZES,
     SECTORS,
     WEIGHTS,
-    N_SECTORS
+    N_SECTORS,
+    RESERVOIR_PARAMS
 )
+from .synaptic_delays import DelayBuffer
 
 SECTOR_BOUND = np.cumsum([0] + SECTOR_SIZES)
 assert SECTOR_BOUND[-1] == N_HIDDEN_NEURONS, "N_HIDDEN_NEURONS != num_sec_neurons*num_sec"
@@ -51,13 +54,14 @@ def allocate_neuron_quota():
             for _ in range(-diff):
                 idx = np.argmax(raw_q)
                 if raw_q[idx] > 1:
-                    raw_q -= 1
+                    raw_q[idx] -= 1
         
         quotas.update({
             in_id: int(q)
             for in_id, q in zip(in_list, raw_q)
         })
     
+    print(quotas)
     return quotas
 
 
@@ -66,10 +70,7 @@ def build_input_connections(params, rng):
     input_from = [[] for _ in range(N_INPUTS)]
 
     quota = allocate_neuron_quota()
-    in_weights = params.get(
-        'w_in_base',
-        (params['w_in_min'] + params['w_in_max']) / 2
-    )
+    in_weights = params['w_in_base']
     all_neurons = np.arange(N_HIDDEN_NEURONS, dtype=int)
 
     for in_id in range(N_INPUTS):
@@ -89,7 +90,7 @@ def build_input_connections(params, rng):
         for t in targets:
             input_from[in_id].append((int(t), float(in_weights), 0))
 
-    return input_from
+    return np.array(input_from, dtype=object)
 
 
 
@@ -147,12 +148,22 @@ def build_reservoir_graph(params, rng):
 
 
 
-def init_reservoir_state(params):
+def _cached_inputs(seed, build_conn):
+    cache = Path(f"lsm/reservoir_conn_{seed}.npz")
+    if cache.exists():
+        return np.load(cache, allow_pickle=True)["arr_0"]
+    arr = build_conn()
+    np.savez_compressed(cache, arr_0=arr)
+    return arr
+
+
+def init_reservoir_state(params=RESERVOIR_PARAMS):
     rng = np.random.default_rng(params['seed'])
     graph_from = build_reservoir_graph(params, rng)
-    input_from = build_input_connections(params, rng)
+    input_from = _cached_inputs(params["seed"], lambda: build_input_connections(params, rng))
     dt = params['dt']
     buf_len = int(np.ceil(params['delay_max'] / dt)) + 1
+    delay = DelayBuffer(buf_len)
 
     state = {
         # membrane potentials
@@ -163,10 +174,6 @@ def init_reservoir_state(params):
         'v_th' : np.full(N_HIDDEN_NEURONS, params['v_th_init'], np.float32),
         # refractory timers
         'ref_until' : np.zeros(N_HIDDEN_NEURONS, int),
-        # presynaptic traces (for stdp)
-        'pre_trace' : np.zeros(N_INPUTS, np.float32),
-        # postsynaptic traces (for stdp)
-        'post_trace' : np.zeros(N_HIDDEN_NEURONS, np.float32),
         # ring buffer for delayed spikes
         'delay_buf' : [[] for _ in range(buf_len)],
         # spike counts (for homeostasis)
@@ -184,14 +191,13 @@ def init_reservoir_state(params):
         # refractory duration in ticks
         't_ref_ticks' : int(np.ceil(params['t_ref'] / dt)),
         # membrane decay factor
-        'decay_v' : np.exp(-dt / params['tau_mem']),
+        'decay_v' : np.float32(np.exp(-dt / params['tau_mem'])),
         # synaptic decay factor
-        'decay_i' : np.exp(-dt / params['tau_syn']),
-        # trace decay factor (for stdp)
-        'decay_trace' : np.exp(-dt / params['tau_stdp']),
+        'decay_i' : np.float32(np.exp(-dt / params['tau_syn'])),
         # reset value for membrane
         'v_reset' : params['v_reset'],
         # time step size
+        'delay' : delay,
         'dt' : dt
     }
 
@@ -199,63 +205,55 @@ def init_reservoir_state(params):
 
 
 def reservoir_step(params, state, inputs):
-    v, i_syn = state['v'], state['i_syn']
-    tick = state['tick']
-    buf_len = state['buf_len']
+    t = state['tick']
+    delay_buf = state['delay']
 
     # apply input spikes
     for in_id in inputs:
-        state['pre_trace'][in_id] = 1.0
         # schedule their effect on connected hidden neurons
         for post, w, dtk in state['input_from'][in_id]:
-            buf_pos = (tick + dtk) % buf_len
-            state['delay_buf'][buf_pos].append((post, w))
-
-    # current position in delay buffer
-    pos = tick % buf_len
+            delay_buf.schedule(t + dtk, post, w)
 
     # deliver all delayed spikes scheduled for this tick
-    for post, w in state['delay_buf'][pos]:
-        i_syn[post] += w
-    state['delay_buf'][pos].clear()
+    delay_buf.deliver(t, state['i_syn'])
 
-    # exponential decay of synaptic current
-    i_syn *= state['decay_i']
+    v = state["v"]
+    i_syn = state["i_syn"]
+    v_th = state["v_th"]
+    decay_v = state["decay_v"]
+    decay_i = state["decay_i"]
+    v_reset = state["v_reset"]
+
 
     # handle refractory neurons
-    active = state['ref_until'] <= tick
     # refractory neurons can't integrate or spike
-    i_syn[~active] = 0.0
+    refractory = state['ref_until'] > t
+    active = ~refractory
 
     # update membrane potential for active LIF-neurons
-    v[active] = (
-        v[active] * state['decay_v'] +
-        (1.0 - state['decay_v']) * i_syn[active]
-    )
+    i_syn[active] *= decay_i
+    v[active] = v[active] * decay_v + (1.0 - decay_v) * i_syn[active]
+
     # reset membrane potential for refractory neurons
-    v[~active] = state['v_reset']
+    i_syn[refractory] = 0.0
+    v[refractory] = v_reset
+
 
     # detect spikes
-    fired = np.where((v >= state['v_th']) & active)[0]
-    if fired.size:
-        v[fired] = state['v_reset']
-        state['ref_until'][fired] = tick+ state['t_ref_ticks']
-        i_syn[fired] = 0.0
-        state['post_trace'][fired] = 1.0
-        state['spike_counter'][fired] += 1
+    fired = np.where(v >= v_th)[0].astype(np.int32)
+    if fired.size > 0:
+        v[fired] = v_reset
+        state["ref_until"][fired] = t + state["t_ref_ticks"]
+        state["spike_counter"][fired] += 1
         # schedule spikes to connected neurons with delays
-        for neuron in fired.astype(int):
-            for post, w, dtk in state['graph_from'][neuron]:
-                state['delay_buf'][(tick + dtk) % buf_len].append((post, w))
-
-    # decay stdp-traces
-    state['pre_trace'] *= state['decay_trace']
-    state['post_trace'] *= state['decay_trace']
+        for neuron in fired:
+            for post, w, dtk in state["graph_from"][neuron]:
+                delay_buf.schedule(t + dtk, post, w)
 
     # next simulation step
     state['tick'] += 1
     state['time_ms'] += state['dt']
 
-    return fired.tolist()
+    return fired
 
     
