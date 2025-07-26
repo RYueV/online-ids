@@ -1,0 +1,14 @@
+{
+    "arp_mitm_data.pcap": {
+        "normal_ms": 0.48314134440152606,
+        "attack_ms": 0.4775311030646194
+    },
+    "os_scan_data.pcap": {
+        "normal_ms": 1.9457390164111377,
+        "attack_ms": 0.03741698864909724
+    },
+    "syn_dos_data.pcap": {
+        "normal_ms": 1.1391540692149718,
+        "attack_ms": 0.20389090107463081
+    }
+}
