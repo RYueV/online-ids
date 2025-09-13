@@ -1,0 +1,37 @@
+{
+  "EE": {
+    "core":  { "core": 1.00, "alert": 0.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+    "alert": { "core": 0.00, "alert": 1.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+    
+    "arp":   { "alert": 0.55, "core": 0.25, "arp": 0.20, "syn": 0.00, "scan": 0.00 },
+    "syn":   { "alert": 0.55, "core": 0.25, "syn": 0.20, "arp": 0.00, "scan": 0.00 },
+    "scan":  { "alert": 0.55, "core": 0.25, "scan": 0.20, "arp": 0.00, "syn": 0.00 }
+  },
+
+  "IE": {
+    "core":  { "core": 1.00, "alert": 0.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+    "alert": { "core": 0.00, "alert": 1.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+
+    "arp":   { "alert": 0.50, "core": 0.30, "arp": 0.20, "syn": 0.00, "scan": 0.00 },
+    "syn":   { "alert": 0.50, "core": 0.30, "syn": 0.20, "arp": 0.00, "scan": 0.00 },
+    "scan":  { "alert": 0.50, "core": 0.30, "scan": 0.20, "arp": 0.00, "syn": 0.00 }
+  },
+
+  "EI": {
+    "core":  { "core": 1.00, "alert": 0.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+    "alert": { "core": 0.00, "alert": 1.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+
+    "arp":   { "alert": 0.40, "core": 0.40, "arp": 0.20, "syn": 0.00, "scan": 0.00 },
+    "syn":   { "alert": 0.40, "core": 0.40, "syn": 0.20, "arp": 0.00, "scan": 0.00 },
+    "scan":  { "alert": 0.40, "core": 0.40, "scan": 0.20, "arp": 0.00, "syn": 0.00 }
+  },
+
+  "II": {
+    "core":  { "core": 1.00, "alert": 0.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+    "alert": { "core": 0.00, "alert": 1.00, "arp": 0.00, "syn": 0.00, "scan": 0.00 },
+
+    "arp":   { "alert": 0.10, "core": 0.10, "arp": 0.80, "syn": 0.00, "scan": 0.00 },
+    "syn":   { "alert": 0.10, "core": 0.10, "syn": 0.80, "arp": 0.00, "scan": 0.00 },
+    "scan":  { "alert": 0.10, "core": 0.10, "scan": 0.80, "arp": 0.00, "syn": 0.00 }
+  }
+}
