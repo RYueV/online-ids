@@ -382,11 +382,6 @@ def _handle_tcp(
 
     # handshake tracking
     if flg & SYN and not flg & ACK:
-        # быстрая повторная передача SYN в прямом направлении
-        # prev = st["syn_state"].get(four)
-        # if prev is not None and ts_s - prev < SYN_RETRANS_TO:
-        #     _push(spikes, "tcp_syn_retransmit", t_ms)
-        # st["syn_state"][four] = ts_s
 
         st["syn_track"][four] = ts_s
         st["_syn_order"].append(four)
@@ -446,7 +441,7 @@ def _handle_udp(
     # ttfs-кодирование длины udp-сегмента
     bin_ul = _pop_linear(ulen, LEN_BINS)
     norm_ul = _ttfs_norm_linear(ulen, LEN_BINS, bin_ul)
-    _push(spikes, f"raw_len_{bin_ul}", _ttfs_apply(t_ms, norm_ul))
+    _push(spikes, f"raw_udp_len_{bin_ul}", _ttfs_apply(t_ms, norm_ul))
 
     # подозрительные порты
     if sport in SUS_UDP_PORTS or dport in SUS_UDP_PORTS:
@@ -482,23 +477,12 @@ def _handle_icmp(
     # Echo Reply
     elif typ == 0:
         _push(spikes, "icmp_echo_reply", t_ms)
-    # # ttl дошло до 0
-    # elif typ == 11:
-    #     _push(spikes, "icmp_time_exceeded", t_ms)
+
     # хост/сеть/порт недостижимы
     elif typ == 3:
         # 0=net, 1=host, 2=protocol, 3=port, others
         if code == 3:
             _push(spikes, "icmp_unreach_port", t_ms)
-        # elif code in (0, 1):
-        #     _push(spikes, "icmp_unreach_net_host", t_ms)
-        # else:
-        #     _push(spikes, "icmp_unreach_other", t_ms)
-    # маршрутизатор советует лучший маршрут
-    # elif typ == 5:
-    #     _push(spikes, "icmp_redirect", t_ms)
-    # else:
-    #     _push(spikes, "icmp_other", t_ms)
 
     # ttfs-кодирование размера полезной нагрузки
     icmp_hdr = 8 if typ in (0, 8) else 4
@@ -532,13 +516,6 @@ def encode_packet(ts_s, raw:bytes, st):
     # тип mac-адреса источника
     if _is_local_admin_mac(smac):
         _push(spikes, "eth_src_local_admin", t_ms)
-
-    # VLAN-теги, если есть
-    # if vlan_id is not None:
-    #     _push(spikes, "eth_vlan_present", t_ms)
-    #     _push(spikes, f"eth_vlan_bucket_{vlan_id // 1024}", t_ms)
-    #     if vlan_depth > 1:
-    #         _push(spikes, "eth_qinq", t_ms)
 
     # "спайки" уровней L3/L4
     if etype == 0x0806:
@@ -596,24 +573,11 @@ def encode_packet(ts_s, raw:bytes, st):
         # ttfs-кодирование ip total length
         bin_il = _pop_linear(totlen, LEN_BINS)
         norm_il = _ttfs_norm_linear(totlen, LEN_BINS, bin_il)
-        _push(spikes, f"raw_len_{bin_il}", _ttfs_apply(t_ms, norm_il))
+        _push(spikes, f"raw_ip_len_{bin_il}", _ttfs_apply(t_ms, norm_il))
 
         # признаки фрагментации
-        # if df:
-        #     _push(spikes, "ip_df_set", t_ms)
         if mf or frag_off != 0:
             _push(spikes, "ip_fragmented", t_ms)
-
-            # if frag_off == 0 and mf:
-            #     _push(spikes, "ip_frag_first", t_ms)
-            # elif frag_off != 0 and mf:
-            #     _push(spikes, "ip_frag_middle", t_ms)
-            # elif frag_off != 0 and not mf:
-            #     _push(spikes, "ip_frag_last", t_ms)
-            # # tiny fragments
-            # payload_len = max(0, totlen - ihl)
-            # if payload_len <= TINY_FRAG_PL_TH:
-            #     _push(spikes, "ip_frag_tiny", t_ms)
 
             # overlap
             key = (ip_src, ip_dst, ident, proto)
@@ -664,18 +628,6 @@ def encode_packet(ts_s, raw:bytes, st):
             _push(spikes, "generic_pkt", t_ms)
             return spikes
         hop, nxt, plen, src6, dst6, pl6 = ip6
-
-        # ttfs-кодирование hop
-        # bin_hop = _pop_linear(hop, HOP_BINS)
-        # norm_hop = _ttfs_norm_linear(hop, HOP_BINS, bin_hop)
-        # _push(spikes, f"raw_hop_{bin_hop}", _ttfs_apply(t_ms, norm_hop))
-
-        # отклонение hop от базового
-        # base = st["hop_base"].setdefault(dst6, hop)
-        # if hop - base >= INC_TH_HOP:
-        #     _push(spikes, "hop_increase", t_ms)
-        # if hop < base:
-        #     st["hop_base"][dst6] = hop
 
         # ttfs-кодирование размера данных
         bin_v6l = _pop_linear(plen, LEN_BINS)
