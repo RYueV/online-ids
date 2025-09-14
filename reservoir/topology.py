@@ -3,7 +3,7 @@
 """
 import numpy as np
 from typing import Dict, Optional, Tuple
-from config import P_INTRA, INTER_SPECS
+from config import P_INTER_BY_PAIR, P_INTRA_BY_SECTOR
 
 # коды типов связей
 STYPE = {
@@ -69,7 +69,7 @@ def _sample_block(
                     if need > 0 and (n_post - 1) >= need:
                         pool = post_idx[post_idx != pre]
                         add = rng.choice(pool, size=need, replace=False)
-                        pre = np.concatenate([post, add])
+                        post = np.concatenate([post, add])
             else:
                 post = rng.choice(post_idx, size=k, replace=False)
 
@@ -165,11 +165,17 @@ def build_topology(
         # индексы I-нейронов сектора s_name
         idxI = masks["idxI_sector"][s_name]
 
+        p_local = P_INTRA_BY_SECTOR.get(s_name, {})
+        pEE = float(p_local.get("EE", 0.0))
+        pEI = float(p_local.get("EI", 0.0))
+        pIE = float(p_local.get("IE", 0.0))
+        pII = float(p_local.get("II", 0.0))
+
         # E->E
         src, dst, st = _sample_block(
             pre_idx=idxE,
             post_idx=idxE,
-            p=P_INTRA.get("EE", 0.0),
+            p=pEE,
             stype_code=STYPE["EE"],
             rng=rng,
             dense_th=dense_th,
@@ -182,7 +188,7 @@ def build_topology(
         src, dst, st = _sample_block(
             pre_idx=idxE,
             post_idx=idxI,
-            p=P_INTRA.get("EI", 0.0),
+            p=pEI,
             stype_code=STYPE["EI"],
             rng=rng,
             dense_th=dense_th,
@@ -195,7 +201,7 @@ def build_topology(
         src, dst, st = _sample_block(
             pre_idx=idxI,
             post_idx=idxE,
-            p=P_INTRA.get("IE", 0.0),
+            p=pIE,
             stype_code=STYPE["IE"],
             rng=rng,
             dense_th=dense_th,
@@ -208,7 +214,7 @@ def build_topology(
         src, dst, st = _sample_block(
             pre_idx=idxI,
             post_idx=idxI,
-            p=P_INTRA.get("II", 0.0),
+            p=pII,
             stype_code=STYPE["II"],
             rng=rng,
             dense_th=dense_th,
@@ -218,15 +224,16 @@ def build_topology(
             src_parts.append(src); dst_parts.append(dst); st_parts.append(st)
 
     # межсекторные связи
-    for src_sec, dst_sec, p_total, splitEE in INTER_SPECS:
-        if p_total <= 0.0: continue
-        split = float(np.clip(splitEE, 0.0, 1.0))
-        pEE = p_total * split
-        pEI = p_total * (1.0 - split)
-
+    for (src_sec, dst_sec), probs in P_INTER_BY_PAIR.items():
         Esrc = masks["idxE_sector"][src_sec]
+        Isrc = masks["idxI_sector"][src_sec]
         Edst = masks["idxE_sector"][dst_sec]
         Idst = masks["idxI_sector"][dst_sec]
+
+        pEE = float(probs.get("EE", 0.0))
+        pEI = float(probs.get("EI", 0.0))
+        pIE = float(probs.get("IE", 0.0))
+        pII = float(probs.get("II", 0.0))
 
         # E->E
         if pEE > 0.0 and Esrc.size and Edst.size:
@@ -252,6 +259,26 @@ def build_topology(
                 rng=rng,
                 dense_th=dense_th,
                 remove_self_loops=False
+            )
+            if src.size:
+                src_parts.append(src); dst_parts.append(dst); st_parts.append(st)
+
+        # I->E
+        if pIE > 0.0 and Isrc.size and Edst.size:
+            src, dst, st = _sample_block(
+                pre_idx=Isrc, post_idx=Edst, p=pIE,
+                stype_code=STYPE["IE"], rng=rng,
+                dense_th=dense_th, remove_self_loops=False
+            )
+            if src.size:
+                src_parts.append(src); dst_parts.append(dst); st_parts.append(st)
+
+        # I->I
+        if pII > 0.0 and Isrc.size and Idst.size:
+            src, dst, st = _sample_block(
+                pre_idx=Isrc, post_idx=Idst, p=pII,
+                stype_code=STYPE["II"], rng=rng,
+                dense_th=dense_th, remove_self_loops=False
             )
             if src.size:
                 src_parts.append(src); dst_parts.append(dst); st_parts.append(st)

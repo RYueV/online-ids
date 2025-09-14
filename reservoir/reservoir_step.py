@@ -5,7 +5,7 @@ from typing import Dict
 import numpy as np
 
 from .lc import lc_update, lc_apply_modulations, lc_apply_safety
-from lif_kernels import decay_traces, integrate_lif
+from .lif_kernels import decay_traces, integrate_lif
 
 
 def reservoir_step(

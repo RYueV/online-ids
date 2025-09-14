@@ -13,6 +13,18 @@ STYPE = {
 }
 
 
+# half-normal по заданному среднему модуля
+def _sample_halfnormal_from_mean(
+        rng:np.random.Generator,
+        n:int,
+        mean_abs:float
+    ): 
+    if n <= 0:
+        return np.empty(0, dtype=np.float32)
+    sigma = float(mean_abs) * np.sqrt(np.pi/2.0)
+    x = rng.normal(loc=0.0, scale=max(1e-7, sigma), size=n).astype(np.float32, copy=False)
+    return np.abs(x).astype(np.float32, copy=False)
+
 
 # положительные веса (нормальное распределение)
 def _sample_positive(
@@ -120,7 +132,7 @@ def _cap_post_incoming_L1(
 # среднее по массиву
 def _mean_arr(arr):
     if arr is None: return 0.0
-    a = np.asarray(a, dtype=np.float64)
+    a = np.asarray(arr, dtype=np.float64)
     if a.size == 0: return 0.0
     finite = np.isfinite(a)
     if not np.any(finite): return 0.0
@@ -171,13 +183,13 @@ def assign_weights(
         # объект ГПСЧ
         rng:Optional[np.random.Generator]=None,
         # среднее и дисперсия весов E-нейронов
-        e_mean:float=0.05, e_std:float=0.02,
+        e_mean:float=0.15, e_std:float=0.02,
         # среднее и дисперсия весов I-нейронов
-        i_mean:float=0.09, i_std:float=0.03,
+        i_mean:float=0.33, i_std:float=0.03,
         # целевой радиус EE-подматрицы
         ee_radius_target:float=0.90,
         ee_power_iters:int=20,
-        i_to_e_ratio:float=1.6,
+        i_to_e_ratio:Optional[float]=None,
         # лимит L1-нормы входящих весов на post нейрон
         post_abs_max:Optional[float]=None,
         # задержки в целых шагах
@@ -208,15 +220,19 @@ def assign_weights(
 
     # ребра, исходящие из E, положительны
     if idxEE.size:
-        w[idxEE] = _sample_positive(rng, idxEE.size, e_mean, e_std)
+        # w[idxEE] = _sample_positive(rng, idxEE.size, e_mean, e_std)
+        w[idxEE] = _sample_halfnormal_from_mean(rng, idxEE.size, e_mean)
     if idxEI.size:
-        w[idxEI] = _sample_positive(rng, idxEI.size, e_mean, e_std)
+        # w[idxEI] = _sample_positive(rng, idxEI.size, e_mean, e_std)
+        w[idxEI] = _sample_halfnormal_from_mean(rng, idxEI.size, e_mean)
         
     # тормозные (IE, II) отрицательны
     if idxIE.size:
-        w[idxIE] = -_sample_positive(rng, idxIE.size, i_mean, i_std)
+        # w[idxIE] = -_sample_positive(rng, idxIE.size, i_mean, i_std)
+        w[idxIE] = -_sample_halfnormal_from_mean(rng, idxIE.size, i_mean)
     if idxII.size:
-        w[idxII] = _sample_positive(rng, idxII.size, i_mean, i_std)
+        # w[idxII] = -_sample_positive(rng, idxII.size, i_mean, i_std)
+        w[idxII] = -_sample_halfnormal_from_mean(rng, idxII.size, i_mean)
 
     # масштабирование EE до целевого спектрального радиуса
     if idxEE.size:
@@ -247,23 +263,42 @@ def assign_weights(
             w[idxEE] *= scale
 
     # выравнивание среднего |wI| относительно |wE|
-    meanE = _mean_arr(np.abs(w[np.concatenate([idxEE, idxEI])])) if (idxEE.size or idxEI.size) else 0.0
-    meanI = _mean_arr(np.abs(w[np.concatenate([idxIE, idxII])])) if (idxIE.size or idxII.size) else 0.0
-    if meanE > 0 and meanI >= 0:
-        targetI = i_to_e_ratio * meanE
-        if meanI > 0:
-            scaleI = targetI / meanI
-            scaleI = float(np.clip(scaleI, 0.5, 2.5))
-            if idxIE.size:
-                w[idxIE] *= scaleI
-            if idxII.size:
-                w[idxII] *= scaleI
-        else:
-            if idxIE.size:
-                w[idxIE] = -_sample_positive(rng, idxIE.size, targetI, targetI * 0.5)
-            if idxII.size:
-                w[idxII] = -_sample_positive(rng, idxII.size, targetI, targetI * 0.5)
+    if i_to_e_ratio is not None:
+        meanE = _mean_arr(np.abs(w[np.concatenate([idxEE, idxEI])])) if (idxEE.size or idxEI.size) else 0.0
+        meanI = _mean_arr(np.abs(w[np.concatenate([idxIE, idxII])])) if (idxIE.size or idxII.size) else 0.0
+        if meanE > 0 and meanI >= 0:
+            targetI = i_to_e_ratio * meanE
+            if meanI > 0:
+                scaleI = targetI / meanI
+                scaleI = float(np.clip(scaleI, 0.5, 2.5))
+                if idxIE.size:
+                    w[idxIE] *= scaleI
+                if idxII.size:
+                    w[idxII] *= scaleI
+            else:
+                if idxIE.size:
+                    w[idxIE] = -_sample_positive(rng, idxIE.size, targetI, targetI * 0.5)
+                if idxII.size:
+                    w[idxII] = -_sample_positive(rng, idxII.size, targetI, targetI * 0.5)
                 
+    
+    def _renorm_block(idxs, target_abs, negative=False):
+        if idxs.size == 0:
+            return
+        cur = float(np.mean(np.abs(w[idxs])))
+        if cur > 0:
+            scale = float(target_abs / cur)
+            w[idxs] *= scale
+        if negative:
+            # строго отрицательные тормозные веса (на случай численных огрехов)
+            w[idxs] = -np.abs(w[idxs])
+
+    _renorm_block(idxEE, e_mean, negative=False)
+    _renorm_block(idxEI, e_mean, negative=False)
+    _renorm_block(idxIE, i_mean, negative=True)
+    _renorm_block(idxII, i_mean, negative=True)
+    
+    
     if post_abs_max is not None and post_abs_max > 0:
         _cap_post_incoming_L1(dst, w, cap=float(post_abs_max))
     

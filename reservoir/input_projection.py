@@ -62,7 +62,7 @@ def build_input_projection(
                 feat_gain[int(feature_id)] = gain
         else:
             for feature_id in ids:
-                sel = rng.choice(idxE, size=fanout, replace=False).astype(np.in32)
+                sel = rng.choice(idxE, size=fanout, replace=False).astype(np.int32)
                 feat2neurons[int(feature_id)] = sel
                 feat_gain[int(feature_id)] = gain
     

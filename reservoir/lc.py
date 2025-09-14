@@ -2,7 +2,7 @@
 locus coeruleus: модуляция порогов и tau_m
 """
 
-from typing import Dict, Optional
+from typing import Dict
 import numpy as np
 from config import (
     DT,     # шаг интегрирования
