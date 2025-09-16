@@ -1,0 +1,68 @@
+{
+  "graph_npz": "reservoir\\graph\\hidden_graph.npz",
+  "meta_json": "reservoir\\graph\\hidden_graph_meta.json",
+  "n_nodes": 430,
+  "n_edges": 9381,
+  "density": 0.05085379736542527,
+  "sparsity": 0.9491462026345747,
+  "spectral_radius": 1.1604560509782973,
+  "degree_stats": {
+    "in_rec": {
+      "mean": 21.816279069767443,
+      "var": 75.14066522444564,
+      "entropy_bits": 4.910182791439423,
+      "min": 4,
+      "max": 46
+    },
+    "out_rec": {
+      "mean": 21.816279069767443,
+      "var": 145.73601406165494,
+      "entropy_bits": 5.212895445183462,
+      "min": 0,
+      "max": 45
+    },
+    "in_ext": {
+      "mean": 0.7581395348837209,
+      "var": 1.4345267712276906,
+      "entropy_bits": 1.6195639987992738,
+      "min": 0,
+      "max": 6
+    },
+    "in_total": {
+      "mean": 22.574418604651164,
+      "var": 75.74213628988643,
+      "entropy_bits": 4.919674328112105,
+      "min": 5,
+      "max": 46
+    }
+  },
+  "clustering": {
+    "mean": 0.14257848918279484,
+    "median": 0.1487824544428318
+  },
+  "distance_stats": {
+    "diameter": 3.0,
+    "avg_path_len": 2.0266059521873476
+  },
+  "components": {
+    "n_components": 1,
+    "largest_size": 430,
+    "sizes_desc": [
+      430
+    ]
+  },
+  "ee_spectral_radius": {
+    "core": 0.862730827114206,
+    "alert": 0.699999991731068,
+    "arp": 0.320360401872938,
+    "scan": 0.2879957623404753,
+    "syn": 0.26008765458177757
+  },
+  "ee_intra_counts": {
+    "core": 3249,
+    "alert": 330,
+    "arp": 141,
+    "scan": 156,
+    "syn": 91
+  }
+}
