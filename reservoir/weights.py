@@ -220,19 +220,15 @@ def assign_weights(
 
     # ребра, исходящие из E, положительны
     if idxEE.size:
-        # w[idxEE] = _sample_positive(rng, idxEE.size, e_mean, e_std)
-        w[idxEE] = _sample_halfnormal_from_mean(rng, idxEE.size, e_mean)
+        w[idxEE] = _sample_positive(rng, idxEE.size, e_mean, e_std)
     if idxEI.size:
-        # w[idxEI] = _sample_positive(rng, idxEI.size, e_mean, e_std)
-        w[idxEI] = _sample_halfnormal_from_mean(rng, idxEI.size, e_mean)
+        w[idxEI] = _sample_positive(rng, idxEI.size, e_mean, e_std)
         
     # тормозные (IE, II) отрицательны
     if idxIE.size:
-        # w[idxIE] = -_sample_positive(rng, idxIE.size, i_mean, i_std)
-        w[idxIE] = -_sample_halfnormal_from_mean(rng, idxIE.size, i_mean)
+        w[idxIE] = -_sample_positive(rng, idxIE.size, i_mean, i_std)
     if idxII.size:
-        # w[idxII] = -_sample_positive(rng, idxII.size, i_mean, i_std)
-        w[idxII] = -_sample_halfnormal_from_mean(rng, idxII.size, i_mean)
+        w[idxII] = -_sample_positive(rng, idxII.size, i_mean, i_std)
 
     # масштабирование EE до целевого спектрального радиуса
     if idxEE.size:
@@ -280,23 +276,6 @@ def assign_weights(
                     w[idxIE] = -_sample_positive(rng, idxIE.size, targetI, targetI * 0.5)
                 if idxII.size:
                     w[idxII] = -_sample_positive(rng, idxII.size, targetI, targetI * 0.5)
-                
-    
-    def _renorm_block(idxs, target_abs, negative=False):
-        if idxs.size == 0:
-            return
-        cur = float(np.mean(np.abs(w[idxs])))
-        if cur > 0:
-            scale = float(target_abs / cur)
-            w[idxs] *= scale
-        if negative:
-            # строго отрицательные тормозные веса (на случай численных огрехов)
-            w[idxs] = -np.abs(w[idxs])
-
-    _renorm_block(idxEE, e_mean, negative=False)
-    _renorm_block(idxEI, e_mean, negative=False)
-    _renorm_block(idxIE, i_mean, negative=True)
-    _renorm_block(idxII, i_mean, negative=True)
     
     
     if post_abs_max is not None and post_abs_max > 0:
