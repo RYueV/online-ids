@@ -18,8 +18,9 @@ from config import (
 # обновление уровня "тревоги" LC
 def lc_update(
         hid_state:Dict[str,object],
-        n_alert_spikes:int
-    )->None:
+        n_alert_spikes:int,
+        dt:float=DT
+    ):
     # уровень "тревоги"
     alpha = float(hid_state.get("alpha", 0.0))
     # рефрактер LC
@@ -27,7 +28,7 @@ def lc_update(
 
     # если рефрактер не вышел, входы игнорируются
     if lc_ref > 0.0:
-        lc_ref = max(0.0, lc_ref - DT)
+        lc_ref = max(0.0, lc_ref - dt)
         delta_in = 0.0
     else:
         # учет вклада alert-спайков
@@ -36,7 +37,7 @@ def lc_update(
             lc_ref = LC_REF
         
     # утечка
-    alpha = (alpha + delta_in) * np.exp(-DT/TAU_LC)
+    alpha = (alpha + delta_in) * np.exp(-dt/TAU_LC)
     # alpha in [0,1]
     alpha = 0.0 if not np.isfinite(alpha) else float(np.clip(alpha, 0.0, 1.0))
 
@@ -57,7 +58,7 @@ def lc_apply_modulations(
         use_tau:bool=True,
         # применять дезингибицию входов
         use_gates:bool=False
-    )->None:
+    ):
     # уровень "тревоги"
     alpha = float(hid_state.get("alpha", 0.0))
     # базовые пороги LIF-нейронов
@@ -117,7 +118,7 @@ def lc_apply_safety(
         n_safety_hits:int,
         # сила влияние "безопасных" сигналов
         beta:float=0.10
-    )->None:
+    ):
     if n_safety_hits <= 0: return
     alpha = float(hid_state.get("alpha", 0.0))
     alpha = max(0.0, alpha - float(beta) * float(n_safety_hits))

@@ -15,7 +15,7 @@ def build_indices(
         detEI:bool=True,
         # объект ГПСЧ
         rng:Optional[np.random.Generator]=None,
-        # постоянная времени утечки мембранного потенциала по секторам (мс)
+        # постоянная времени утечки мембранного потенциала по секторам (секунды)
         tau_m_by_sector:Optional[Dict[str, float]]=None
     )->Dict[str, object]:
     """

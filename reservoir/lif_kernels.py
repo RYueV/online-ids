@@ -15,19 +15,29 @@ from config import (
 )
 
 # коэффициенты затухания
-LAM_E = np.exp(-DT/TAU_SYN_E).astype(np.float32)
-LAM_I = np.exp(-DT/TAU_SYN_I).astype(np.float32)
-LAM_W = np.exp(-DT/TAU_W).astype(np.float32)
+# LAM_E = np.exp(-DT/TAU_SYN_E).astype(np.float32)
+# LAM_I = np.exp(-DT/TAU_SYN_I).astype(np.float32)
+# LAM_W = np.exp(-DT/TAU_W).astype(np.float32)
+
+
+###
+# квант времени для кольцевого буфера (1 мс)
+DELAY_BIN_S = 0.001
+###
+
 
 
 # экспоненциальное затухание синаптических следов
-def decay_traces(hid_state:Dict[str,object]):
+def decay_traces(hid_state:Dict[str,object], dt:float=DT):
     xE = hid_state.get("xE", None)
+    lamE = np.float32(np.exp(-dt/TAU_SYN_E))
     if isinstance(xE, np.ndarray):
-        np.multiply(xE, LAM_E, out=xE)
+        np.multiply(xE, lamE, out=xE)
+
     xI = hid_state.get("xI", None)
+    lamI = np.float32(np.exp(-dt/TAU_SYN_I))
     if isinstance(xI, np.ndarray):
-        np.multiply(xI, LAM_I, out=xI)
+        np.multiply(xI, lamI, out=xI)
 
 
 # рекуррентный ток через синаптические следы и задержки
@@ -36,7 +46,8 @@ def recurrent_current_with_delays(
         hid_state:Dict[str,object],
         # словарь ребер и весов
         conn:Dict[str,object],
-        use_csr_if_available:bool=False  
+        use_csr_if_available:bool=False,
+        dt:float=DT
     ):
     spikes_prev = hid_state["spikes"]
     N = int(spikes_prev.size)
@@ -59,13 +70,13 @@ def recurrent_current_with_delays(
     xE = hid_state["xE"]
     xI = hid_state["xI"]
 
-    decay_traces(hid_state)
+    decay_traces(hid_state, dt)
 
-    for d, bloc in by_delay.items():
-        if d == 0:
+    for d_ms, bloc in by_delay.items():
+        if d_ms == 0:
             xbin = spikes_prev
         else:
-            idx = (head - int(d)) % L
+            idx = (head - int(d_ms)) % L
             xbin = buf[idx]
         if bloc["srcE"].size:
             _edge_matvec_add(bloc["srcE"], bloc["dstE"], bloc["wE"], xbin, xE)
@@ -86,11 +97,13 @@ def integrate_lif(
         # текущие значения порогов для каждого нейрона
         vth:np.ndarray,
         # текущие значения tau_m
-        tau_m:Optional[np.ndarray]=None
+        tau_m:Optional[np.ndarray]=None,
+        # текущее значение шага симуляции
+        dt:float=DT
     ):
     # текущие потенциалы нейронов
     V = hid_state["V"]
-    # веса связей
+    # адаптационный ток (sfa/ahp)
     w = hid_state["w"]
     # остаток рефрактерного периода
     ref = hid_state["ref_left"]
@@ -102,19 +115,19 @@ def integrate_lif(
 
     # интеграция мембраны только для активных
     if tau_m is None:   # случай постоянной tau_m (скаляр)
-        dt_over_tau = np.float32(DT/TAU_M)
+        dt_over_tau = np.float32(dt/TAU_M)
         dV = (-V + I_syn - w) * dt_over_tau
         V[active] += dV[active]
     else: # векторная tau_m (изменяющиеся значения)
         # индексы активных нейронов
         idx = np.nonzero(active)[0]
         if idx.size:
-            dt_over_tau_loc = (DT/ tau_m[idx]).astype(np.float32, copy=False)
+            dt_over_tau_loc = (dt/ tau_m[idx]).astype(np.float32, copy=False)
             V[idx] += (-V[idx] + I_syn[idx] - w[idx]) * dt_over_tau_loc
     
     # уменьшение длительности рефрактера на значение шага
     # (для неактивных нейронов)
-    ref[~active] -= np.float32(DT)
+    ref[~active] -= np.float32(dt)
         
     # проверка порога и формирование спайков
     spikes.fill(0)
@@ -126,7 +139,8 @@ def integrate_lif(
     ref[fired] = np.float32(REFR)
 
     # SFA/AHP
-    np.multiply(w, LAM_W, out=w)
+    lamW = np.float32(np.exp(-dt/TAU_W))
+    np.multiply(w, lamW, out=w)
     if np.any(fired):
         w[fired] += np.float32(B_ADAPT)
 
@@ -137,17 +151,30 @@ def delay_buffer_push(
         # состояние скрытого слоя сети
         hid_state:Dict[str,object],
         # словарь ребер и весов
-        conn:Dict[str,object]
+        conn:Dict[str,object],
+        # текущий шаг симуляции
+        dt:float=DT
     ):
     if "by_delay" not in conn:
         return
     L = int(conn.get("max_delay", 0)) + 1
     if L <= 0:
         L = 1
+
+    steps = int(round(dt / DELAY_BIN_S))
+    if steps < 1:
+        steps = 1
+
     buf = hid_state["delay_buf"]
     head = int(hid_state.get("delay_head", 0))
     buf[head, :] = hid_state["spikes"].astype(np.int8, copy=False)
-    hid_state["delay_head"] = (head + 1) % L
+    head = (head + 1) % L
+
+    for _ in range(steps - 1):
+        buf[head, :].fill(0)
+        head = (head + 1) % L
+
+    hid_state["delay_head"] = head
 
 
 
